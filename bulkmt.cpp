@@ -165,7 +165,7 @@ private:
 class ConsoleObserver: public Observer
 {
 public:
-	ConsoleObserver( std::shared_ptr<Executor> ptrExecutor ): m_bDataExist(false), m_bRun(true)
+	ConsoleObserver( std::shared_ptr<Executor> ptrExecutor ):  m_bRun(true), m_bDataExist(false)
 	{
 		auto wptr = std::shared_ptr<ConsoleObserver>( this, []( ConsoleObserver* ) {} );
 		ptrExecutor->subscribe( wptr );
