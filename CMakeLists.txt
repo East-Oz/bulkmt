@@ -5,7 +5,7 @@ project( bulkmt VERSION 0.0.$ENV{TRAVIS_BUILD_NUMBER} )
 add_executable( bulkmt bulkmt.cpp )
 
 
-set_target_properties( bulk PROPERTIES
+set_target_properties( bulkmt PROPERTIES
 	CXX_STANDARD 14
 	CXX_STANDARD_REQUIRED ON
 	COMPILE_OPTIONS "-Wpedantic;-Wall;-Wextra"
