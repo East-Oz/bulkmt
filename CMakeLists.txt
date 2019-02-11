@@ -4,10 +4,14 @@ project( bulkmt VERSION 0.0.$ENV{TRAVIS_BUILD_NUMBER} )
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
-target_link_libraries(bulkmt Threads::Threads)
 
 add_executable( bulkmt bulkmt.cpp )
 
+target_link_libraries(bulkmt Threads::Threads)
+
+#TARGET_LINK_LIBRARIES( bulkmt
+#pthread
+#)
 
 set_target_properties( bulkmt PROPERTIES
 	CXX_STANDARD 14
