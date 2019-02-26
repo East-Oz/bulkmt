@@ -63,7 +63,6 @@ public:
 			s->execute( &m_commands, &m_fct );
 		}
 	}
-
 };
 
 class FileObserver: public Observer
@@ -88,6 +87,19 @@ public:
 		m_cv.notify_all();
 	}
 
+	~FileObserver()
+	{
+		m_bRun = false;
+		m_bDataExist = true;
+		m_cv.notify_all();
+
+		if( m_Thread1.joinable() )
+			m_Thread1.join();
+		if( m_Thread2.joinable() )
+			m_Thread2.join();
+
+	}
+
 private:
 	bool m_bRun;
 	std::thread m_Thread1;
@@ -104,7 +116,8 @@ private:
 		while( m_bRun )
 		{
 			std::unique_lock<std::mutex> lck( m_Mutex );
-			while( !m_bDataExist ) m_cv.wait( lck );
+			while( !m_bDataExist && m_bRun ) m_cv.wait( lck );
+			if( !m_bRun ){ return; }
 
 			int command_count = 0;
 			int block_count = 0;
@@ -180,9 +193,21 @@ public:
 
 		std::unique_lock<std::mutex> lck( m_Mutex );
 		m_bDataExist = true;
+		m_bRun = true;
 		m_cv.notify_all();
 	}
 
+	~ConsoleObserver()
+	{
+		m_bRun = false;
+		m_bDataExist = true;
+		m_cv.notify_all();
+
+		if( m_Thread.joinable() )
+		{
+			m_Thread.join();
+		}
+	}
 private:
 	bool m_bRun;
 	std::thread m_Thread;
@@ -198,7 +223,13 @@ private:
 		while( m_bRun )
 		{
 			std::unique_lock<std::mutex> lck( m_Mutex );
-			while( !m_bDataExist ) m_cv.wait( lck );
+			while( !m_bDataExist && m_bRun ) m_cv.wait( lck );
+
+			if( !m_bRun ) 
+			{ 
+				return; 
+			}
+
 
 			int command_count = 0;
 			int block_count = 0;
