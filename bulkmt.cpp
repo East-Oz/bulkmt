@@ -8,7 +8,7 @@
 #include <iostream>
 #include <fstream>
 #include <thread>
-#include <condition_variable> 
+#include <condition_variable>
 #include <future>
 
 int gRowCount = 1;
@@ -36,23 +36,32 @@ public:
 class Executor
 {
 public:
-	Executor(): m_fct(time(0)){};
+	Executor(): m_fct(time(0))
+		, m_nReadySubscribersCount(0)
+		,m_bReadyProcessData(true){};
 
 	std::vector<std::string> m_commands;
 	time_t m_fct; // first command time
+	std::condition_variable m_cvReadyProcess;
+	bool m_bReadyProcessData;
 private:
 	std::vector<std::shared_ptr<Observer>> m_subscribers;
+	std::atomic_int m_nReadySubscribersCount;
+	std::mutex m_Mutex;
 
 public:
 	void subscribe( std::shared_ptr<Observer> ptrObs )
 	{
 		m_subscribers.push_back( ptrObs );
+		++m_nReadySubscribersCount;
 	}
 
 	void set_commands( std::vector<std::string> commands, time_t fct )
 	{
+		m_bReadyProcessData = false;
 		m_commands = commands;
 		m_fct = fct;
+
 		execute();
 	}
 
@@ -63,12 +72,30 @@ public:
 			s->execute( &m_commands, &m_fct );
 		}
 	}
+
+	void finish_task()
+	{
+		if( m_nReadySubscribersCount > 0 )
+		{
+			--m_nReadySubscribersCount;
+			if( m_nReadySubscribersCount == 0 )
+			{
+				std::unique_lock<std::mutex> lck( m_Mutex );
+				m_bReadyProcessData = true;
+				m_cvReadyProcess.notify_all();
+
+				m_nReadySubscribersCount = m_subscribers.size();
+			}
+		}
+	}
 };
 
 class FileObserver: public Observer
 {
 public:
-	FileObserver( std::shared_ptr<Executor> ptrExecutor ): m_bRun( true ), m_bDataExist( false)
+	FileObserver( std::shared_ptr<Executor> ptrExecutor ): m_bRun( true )
+		, m_bDataExist( false)
+		, m_pExecutor( ptrExecutor )
 	{
 		auto wptr = std::shared_ptr<FileObserver>( this, []( FileObserver* ) {} );
 		ptrExecutor->subscribe( wptr );
@@ -111,6 +138,8 @@ private:
 	std::vector<std::string>* m_pCommandsVect;
 	time_t* m_pFirstCommandTime;
 
+	std::shared_ptr<Executor> m_pExecutor;
+
 	void Run( int thread )
 	{
 		while( m_bRun )
@@ -126,7 +155,10 @@ private:
 			{
 				struct tm  tstruct;
 				char       buf[ 80 ];
-				tstruct = *localtime( m_pFirstCommandTime );
+
+				//tstruct = *localtime( m_pFirstCommandTime );
+
+				localtime_r( &tstruct, m_pFirstCommandTime );
 				strftime( buf, sizeof( buf ), "%OH%OM%OS", &tstruct );
 
 				auto time_now = std::chrono::system_clock::now();
@@ -160,14 +192,16 @@ private:
 					_out.append( std::to_string( thread ) ).append( " thread - " );
 					_out.append( std::to_string( block_count ) ).append( " " ).append( title_block ).append( ", " );
 					_out.append( std::to_string( command_count ) ).append( " " ).append( title_command );
-					ConsoleLog( _out );				
+					ConsoleLog( _out );
 
-					// second thread does not wake up 
+					// second thread does not wake up
 					std::string _out2 = "file";
 					_out2.append( std::to_string( (thread==1)?2:1 ) ).append( " thread - " );
 					_out2.append( std::to_string( 0 ) ).append( " " ).append( title_block ).append( ", " );
 					_out2.append( std::to_string( 0 ) ).append( " " ).append( title_command );
 					ConsoleLog( _out2 );
+
+					m_pExecutor->finish_task();
 				}
 			}
 			m_bDataExist = false;
@@ -178,7 +212,9 @@ private:
 class ConsoleObserver: public Observer
 {
 public:
-	ConsoleObserver( std::shared_ptr<Executor> ptrExecutor ):  m_bRun(true), m_bDataExist(false)
+	ConsoleObserver( std::shared_ptr<Executor> ptrExecutor ):  m_bRun(true)
+		, m_bDataExist(false)
+		, m_pExecutor( ptrExecutor )
 	{
 		auto wptr = std::shared_ptr<ConsoleObserver>( this, []( ConsoleObserver* ) {} );
 		ptrExecutor->subscribe( wptr );
@@ -215,8 +251,11 @@ private:
 	bool m_bDataExist;
 	std::condition_variable m_cv;
 
+
 	std::vector<std::string>* m_pCommandsVect;
 	time_t* m_pFirstCommandTime;
+
+	std::shared_ptr<Executor> m_pExecutor;
 
 	void Run()
 	{
@@ -225,9 +264,9 @@ private:
 			std::unique_lock<std::mutex> lck( m_Mutex );
 			while( !m_bDataExist && m_bRun ) m_cv.wait( lck );
 
-			if( !m_bRun ) 
-			{ 
-				return; 
+			if( !m_bRun )
+			{
+				return;
 			}
 
 
@@ -236,23 +275,14 @@ private:
 
 			if( m_pCommandsVect->size() > 0 )
 			{
-				std::string _result = "bulk: ";
-				for( size_t i = 0; i < m_pCommandsVect->size(); ++i )
-				{
-					++command_count;
-					_result.append( m_pCommandsVect->at( i ) );
-					if( i < (m_pCommandsVect->size() - 1) )
-					{
-						_result.append( ", " );
-					}
-				}
-				ConsoleLog( _result );
 				++block_count;
-
+				
 				std::string _out = "log thread - ";
 				_out.append( std::to_string( block_count ) ).append( " " ).append( title_block ).append( ", " );
 				_out.append( std::to_string( command_count ) ).append( " " ).append( title_command );
 				ConsoleLog( _out );
+
+				m_pExecutor->finish_task();
 			}
 			m_bDataExist = false;
 		}
@@ -262,7 +292,7 @@ private:
 class Parser
 {
 public:
-	Parser( std::shared_ptr<Executor> ptrExec ): m_pExecutor( ptrExec ) {};
+	Parser( std::shared_ptr<Executor> ptrExec ): m_pExecutor( ptrExec ){};
 	void Start()
 	{
 		if( m_pExecutor == nullptr )
@@ -281,7 +311,8 @@ public:
 		std::vector<std::string> vector_str;
 		int count = 1;
 		time_t fct = time( 0 );
-		for( std::string line; std::getline( std::cin, line );)
+		std::string line;
+		while( std::getline( std::cin, line ) )
 		{
 			++line_count;
 			++command_count;
@@ -325,11 +356,24 @@ public:
 
 			if( is_ready_data )
 			{
+				std::string _result = "bulk: ";
+				for( size_t i = 0; i < vector_str.size(); ++i )
+				{
+					++command_count;
+					_result.append( vector_str.at( i ) );
+					if( i < (vector_str.size() - 1) )
+					{
+						_result.append( ", " );
+					}
+				}
+				ConsoleLog( _result );
+
+
 				m_pExecutor->set_commands( vector_str, fct );
 				vector_str.clear();
 				++block_count;
 				is_ready_data = false;
-				
+
 				std::string _out = "main thread - ";
 				_out.append( std::to_string( line_count ) ).append( " " ).append( title_line ).append(", ");
 				_out.append( std::to_string( command_count ) ).append( " " ).append( title_command ).append( ", " );
@@ -337,24 +381,35 @@ public:
 
 				ConsoleLog( _out );
 				count = block_count = line_count = command_count = 0;
+
+				std::unique_lock<std::mutex> lck( m_Mutex );
+				while( !m_pExecutor->m_bReadyProcessData ) m_pExecutor->m_cvReadyProcess.wait( lck );
+
+				int t = 0x00;
 			}
 			count++;
 		}
-		m_pExecutor->set_commands( vector_str, fct );
-		vector_str.clear();
-		++block_count;
+		if( vector_str.size() > 0 )
+		{
+			m_pExecutor->set_commands( vector_str, fct );
+			vector_str.clear();
+			++block_count;
 
-		std::string _out = "main thread - ";
-		_out.append( std::to_string( line_count ) ).append( " " ).append( title_line ).append( ", " );
-		_out.append( std::to_string( command_count ) ).append( " " ).append( title_command ).append( ", " );
-		_out.append( std::to_string( block_count ) ).append( " " ).append( title_block );
+			std::string _out = "main thread - ";
+			_out.append( std::to_string( line_count ) ).append( " " ).append( title_line ).append( ", " );
+			_out.append( std::to_string( command_count ) ).append( " " ).append( title_command ).append( ", " );
+			_out.append( std::to_string( block_count ) ).append( " " ).append( title_block );
 
-		ConsoleLog( _out );
-		count = block_count = line_count = command_count = 0;
+			ConsoleLog( _out );
+			count = block_count = line_count = command_count = 0;
+		}
 	}
 
 private:
 	std::shared_ptr<Executor> m_pExecutor;
+	std::mutex m_Mutex;
+	std::condition_variable m_cv;
+
 };
 
 int main( int argc, char *argv[] )
