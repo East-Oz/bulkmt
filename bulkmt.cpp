@@ -158,7 +158,7 @@ private:
 
 				//tstruct = *localtime( m_pFirstCommandTime );
 
-				localtime_r( &tstruct, m_pFirstCommandTime );
+				localtime_r( m_pFirstCommandTime, &tstruct );
 				strftime( buf, sizeof( buf ), "%OH%OM%OS", &tstruct );
 
 				auto time_now = std::chrono::system_clock::now();
@@ -276,7 +276,7 @@ private:
 			if( m_pCommandsVect->size() > 0 )
 			{
 				++block_count;
-				
+
 				std::string _out = "log thread - ";
 				_out.append( std::to_string( block_count ) ).append( " " ).append( title_block ).append( ", " );
 				_out.append( std::to_string( command_count ) ).append( " " ).append( title_command );
@@ -312,6 +312,7 @@ public:
 		int count = 1;
 		time_t fct = time( 0 );
 		std::string line;
+		//for( std::string line; std::getline( std::cin, line );)
 		while( std::getline( std::cin, line ) )
 		{
 			++line_count;
@@ -385,7 +386,6 @@ public:
 				std::unique_lock<std::mutex> lck( m_Mutex );
 				while( !m_pExecutor->m_bReadyProcessData ) m_pExecutor->m_cvReadyProcess.wait( lck );
 
-				int t = 0x00;
 			}
 			count++;
 		}
